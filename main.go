@@ -56,7 +56,7 @@ func main() {
 	ff.Parse(fs, os.Args[1:],
 		ff.WithConfigFileFlag("config"),
 		ff.WithConfigFileParser(ff.PlainParser),
-		ff.WithEnvVarPrefix("WAVE"),
+		ff.WithEnvVarPrefix("OBR"),
 	)
 
 	err := run(*host, *token, *projectsRegex, *deployment, *currentImage, *newImage, *kubeconfig, *batchSize)
