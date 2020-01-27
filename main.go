@@ -53,13 +53,17 @@ func main() {
 		kubeconfig = fs.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
 
-	ff.Parse(fs, os.Args[1:],
+	err := ff.Parse(fs, os.Args[1:],
 		ff.WithConfigFileFlag("config"),
 		ff.WithConfigFileParser(ff.PlainParser),
 		ff.WithEnvVarPrefix("OBR"),
 	)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
-	err := run(*host, *token, *projectsRegex, *deployment, *currentImage, *newImage, *kubeconfig, *batchSize)
+	err = run(*host, *token, *projectsRegex, *deployment, *currentImage, *newImage, *kubeconfig, *batchSize)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -300,7 +304,7 @@ func updateWorker(clientSet *kubernetes.Clientset, appsV1Client *appsv1.AppsV1Cl
 func waitForAvailableReplicas(deploymentsClient appsv1.DeploymentConfigInterface, name string, previousVersion int64) error {
 	end := time.Now().Add(deployRunningThreshold)
 
-	for true {
+	for {
 		<-time.NewTimer(deployRunningCheckInterval).C
 
 		var err error
@@ -317,7 +321,6 @@ func waitForAvailableReplicas(deploymentsClient appsv1.DeploymentConfigInterface
 			return fmt.Errorf("Failed to get available replicas within timeout")
 		}
 	}
-	return nil
 }
 
 func availableReplicas(deploymentsClient appsv1.DeploymentConfigInterface, name string, previousVersion int64) (bool, error) {
