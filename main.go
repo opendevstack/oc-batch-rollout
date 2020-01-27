@@ -216,14 +216,15 @@ func run(host string, token string, projectsRegex string, deployment string, cur
 			var wg sync.WaitGroup
 			for _, d := range targetDeployments {
 				wg.Add(1)
-				updateWorker(clientSet, appsV1Client, d, newImage, newImageReference, &wg)
+				go updateWorker(clientSet, appsV1Client, d, newImage, newImageReference, &wg)
 			}
 			wg.Wait()
+			fmt.Print("\n\n")
 			targetDeployments = []targetDeployment{}
 		}
 	}
 
-	fmt.Println("\nDone.")
+	fmt.Println("Done.")
 
 	return nil
 }
