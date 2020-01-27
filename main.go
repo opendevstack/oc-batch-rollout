@@ -123,10 +123,15 @@ func run(host string, token string, projectsRegex string, deployment string, cur
 			targetProjects = append(targetProjects, p.Name)
 		}
 	}
-	fmt.Printf("Found %d projects matching '%s'.\n\n", len(targetProjects), projectsRegex)
 	if len(targetProjects) < 1 {
+		fmt.Printf("Did not find any projects matching '%s'.\n\n", projectsRegex)
 		return nil
 	}
+	fmt.Printf("Found %d projects matching '%s':\n\n", len(targetProjects), projectsRegex)
+	for _, p := range targetProjects {
+		fmt.Printf("\t%s\n", p)
+	}
+	fmt.Println("")
 
 	imageV1Client, err := imagev1.NewForConfig(config)
 	if err != nil {
