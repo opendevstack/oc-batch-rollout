@@ -19,7 +19,9 @@ The rollout of the new image can be controlled by specifying how many deployment
 
 ## Usage
 
-oc-batch-rollout is available as a pre-built binary (`obr`) for various operating systems. Once installed, see `obr --help` for usage.
+oc-batch-rollout is available as a pre-built binary for various operating systems, see [Installation](#installation).
+
+Once installed, see `obr --help` for usage.
 
 As an example, assume you have a Jenkins instance running in many projects, all of which are ending in `-cd`. The currently deployed image is `v1`, which you now want to update to`v2`, 10 instances at a time. To do this, simply run:
 
@@ -27,11 +29,32 @@ As an example, assume you have a Jenkins instance running in many projects, all 
 obr --projects ".*-cd\$" --deployment jenkins --current-image v1 --new-image v2 --batchsize 10
 ```
 
-The tool is interactive and will ask for confirmation before applying the updates (disable with --non-interactive).
+The tool is interactive and will ask for confirmation before applying the updates.
 
 ## Installation
 
-TODO
+The latest release is 0.1.0.
+
+MacOS:
+
+```
+curl -LO "https://github.com/opendevstack/obr/releases/download/v0.1.0/obr-darwin-amd64" && \
+chmod +x obr-darwin-amd64 && mv obr-darwin-amd64 /usr/local/bin/obr
+```
+
+Linux:
+
+```
+curl -LO "https://github.com/opendevstack/obr/releases/download/v0.1.0/obr-linux-amd64" && \
+chmod +x obr-linux-amd64 && mv obr-linux-amd64 /usr/local/bin/obr
+```
+
+Windows (using Git Bash):
+
+```
+curl -LO "https://github.com/opendevstack/obr/releases/download/v0.1.0/obr-windows-amd64.exe" && \
+chmod +x obr-windows-amd64.exe && mv obr-windows-amd64.exe /mingw64/bin/obr.exe
+```
 
 ## Development
 
