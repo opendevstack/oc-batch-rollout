@@ -38,21 +38,21 @@ The latest release is 0.1.0.
 MacOS:
 
 ```
-curl -LO "https://github.com/opendevstack/obr/releases/download/v0.1.0/obr-darwin-amd64" && \
+curl -LO "https://github.com/opendevstack/oc-batch-rollout/releases/download/v0.1.0/obr-darwin-amd64" && \
 chmod +x obr-darwin-amd64 && mv obr-darwin-amd64 /usr/local/bin/obr
 ```
 
 Linux:
 
 ```
-curl -LO "https://github.com/opendevstack/obr/releases/download/v0.1.0/obr-linux-amd64" && \
+curl -LO "https://github.com/opendevstack/oc-batch-rollout/releases/download/v0.1.0/obr-linux-amd64" && \
 chmod +x obr-linux-amd64 && mv obr-linux-amd64 /usr/local/bin/obr
 ```
 
 Windows (using Git Bash):
 
 ```
-curl -LO "https://github.com/opendevstack/obr/releases/download/v0.1.0/obr-windows-amd64.exe" && \
+curl -LO "https://github.com/opendevstack/oc-batch-rollout/releases/download/v0.1.0/obr-windows-amd64.exe" && \
 chmod +x obr-windows-amd64.exe && mv obr-windows-amd64.exe /mingw64/bin/obr.exe
 ```
 
