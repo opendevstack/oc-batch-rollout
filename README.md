@@ -30,10 +30,19 @@ Once installed, see `obr --help` for usage.
 
 It can make use of an active OC session (retrieved from `~/.kube/config`) or uses login params specified via `--host` and `--token`.
 
-As an example, assume you have a Jenkins instance running in many projects, all of which are ending in `-cd`. The currently deployed image is `cd/jenkins:v1`, which you now want to update to`cd/jenkins:v2`, 10 instances at a time. To do this, simply run:
+As an example for use case 1, assume you have a Jenkins instance running in many projects, all of which are ending in `-cd`. The currently deployed image is `cd/jenkins:v1`, which you now want to update to`cd/jenkins:v2`, 10 instances at a time. To do this, simply run:
 
 ```
-obr --projects ".*-cd\$" --deployment jenkins --current-image cd/jenkins:v1 --new-image cd/jenkins:v2 --batchsize 10
+obr --projects ".*-cd\$" --deployment jenkins \
+    --current-image cd/jenkins:v1 --new-image cd/jenkins:v2 \
+    --batchsize 10
+```
+
+To ensure that all deployments use the latest image SHA of a (moving) tag (use case 2):
+```
+obr --projects ".*-cd\$" --deployment jenkins \
+    --current-image cd/jenkins:v2 --new-image cd/jenkins:v2 \
+    --batchsize 10
 ```
 
 The tool is interactive and will ask for confirmation before applying the updates.
