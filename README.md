@@ -1,13 +1,13 @@
 # oc-batch-rollout
 
-Rollout an image to many deployments across multiple projects.
+Rollout an image to many similar deployments across multiple projects.
 
 ## Rationale
 
-An OpenShift cluster might have many projects. Some or all of those projects might contain deployments using the same image. Updating this image is tricky using built-in OpenShift functionality:
+An OpenShift cluster might have many projects. Some or all of those projects might contain `DeploymentConfig` resources having the same name and using the same image. Updating this image is tricky using built-in OpenShift functionality:
 
 * Explicitly updating the image is only possible for one deployment at a time.
-* Image triggers can be used to rollout an image to many deployments, but there is no control over the rollout process. This may incur huge load on the cluster due to simultaneous restarts.
+* Image triggers can be used to trigger rollouts when image tags change, but there is no control over the rollout process. This may incur huge load on the cluster due to simultaneous restarts.
 
 `oc-batch-rollout` is trying to solve those issues by offering a simple tool to select deployments across projects to update, and to specify which image should be rolled out and how. Selection of deployment is based on three filters:
 
@@ -16,6 +16,11 @@ An OpenShift cluster might have many projects. Some or all of those projects mig
 3. currently used image tag/SHA (optional)
 
 The rollout of the new image can be controlled by specifying how many deployments to update simultaneously.
+
+## Use Cases
+
+1. Change the image of `DeploymentConfig` resources across multiple projects, e.g. to `cd/jenkins:v2`. Optionally, this can be applied only to deployments matching a different image tag such as `cd/jenkins:v1`.
+2. `DeploymentConfig` resources without an image trigger are not affected when the image tag they are using is updated to point to a new SHA. `oc-batch-rollout` allows to roll out this new image SHA to all deployments in a controlled way. This functionality can also be used to check if all matching deployments use the latest image SHA of an image tag.
 
 ## Usage
 
