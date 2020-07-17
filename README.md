@@ -7,9 +7,9 @@ Rollout an image to many deployments across multiple projects.
 An OpenShift cluster might have many projects. Some or all of those projects might contain deployments using the same image. Updating this image is tricky using built-in OpenShift functionality:
 
 * Explicitly updating the image is only possible for one deployment at a time.
-* Image triggers can be used to rollout an image to many deployments, but users do not have control over the rollout process. This may incur huge load on the cluster due to simultaneous restarts.
+* Image triggers can be used to rollout an image to many deployments, but there is no control over the rollout process. This may incur huge load on the cluster due to simultaneous restarts.
 
-oc-batch-rollout is trying to solve those issues by offering a simple tool to select deployments across projects to update, and to specify which image should be rolled out and how. Selection of deployment is based on three filters: 
+`oc-batch-rollout` is trying to solve those issues by offering a simple tool to select deployments across projects to update, and to specify which image should be rolled out and how. Selection of deployment is based on three filters:
 
 1. namespace pattern (required)
 2. deployment name (required)
@@ -19,14 +19,14 @@ The rollout of the new image can be controlled by specifying how many deployment
 
 ## Usage
 
-oc-batch-rollout is available as a pre-built binary for various operating systems, see [Installation](#installation).
+`oc-batch-rollout` is available as a pre-built binary for various operating systems, see [Installation](#installation).
 
 Once installed, see `obr --help` for usage.
 
-As an example, assume you have a Jenkins instance running in many projects, all of which are ending in `-cd`. The currently deployed image is `v1`, which you now want to update to`v2`, 10 instances at a time. To do this, simply run:
+As an example, assume you have a Jenkins instance running in many projects, all of which are ending in `-cd`. The currently deployed image is `cd/jenkins:v1`, which you now want to update to`cd/jenkins:v2`, 10 instances at a time. To do this, simply run:
 
 ```
-obr --projects ".*-cd\$" --deployment jenkins --current-image v1 --new-image v2 --batchsize 10
+obr --projects ".*-cd\$" --deployment jenkins --current-image cd/jenkins:v1 --new-image cd/jenkins:v2 --batchsize 10
 ```
 
 The tool is interactive and will ask for confirmation before applying the updates.

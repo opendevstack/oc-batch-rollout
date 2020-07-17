@@ -24,11 +24,10 @@ import (
 	v1 "github.com/openshift/api/apps/v1"
 	appsv1 "github.com/openshift/client-go/apps/clientset/versioned/typed/apps/v1"
 	imagev1 "github.com/openshift/client-go/image/clientset/versioned/typed/image/v1"
-	projectv1 "github.com/openshift/client-go/project/clientset/versioned/typed/project/v1"
 )
 
 const (
-	deployRunningThreshold     = time.Minute * 5
+	deployRunningTimeout       = time.Second * 300
 	deployRunningCheckInterval = time.Second * 5
 )
 
@@ -63,6 +62,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if newImage == nil {
+		fmt.Println("--new-image is required")
+		os.Exit(1)
+	}
+
 	err = run(*host, *token, *projectsRegex, *deployment, *currentImage, *newImage, *kubeconfig, *batchSize)
 	if err != nil {
 		fmt.Println(err)
@@ -71,11 +75,13 @@ func main() {
 }
 
 type targetDeployment struct {
-	project string
-	name    string
+	project       string
+	name          string
+	deployedImage string
+	newImage      string
 }
 
-func run(host string, token string, projectsRegex string, deployment string, currentImage string, newImage string, kubeconfig string, batchSize int) error {
+func run(host string, token string, projectsRegex string, deployment string, currentImageFlag string, newImageFlag string, kubeconfig string, batchSize int) error {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return err
@@ -93,49 +99,11 @@ func run(host string, token string, projectsRegex string, deployment string, cur
 		panic(err)
 	}
 
-	imageFilter := "having any image"
-	if len(currentImage) > 0 {
-		imageFilter = fmt.Sprintf("having image \"%s\"", currentImage)
-	}
-	fmt.Printf(
-		"Rolling out image \"%s\" to all deployments named \"%s\" (%s) in projects matching \"%s\".\n\n",
-		newImage,
-		deployment,
-		imageFilter,
-		projectsRegex,
-	)
-
-	projectV1Client, err := projectv1.NewForConfig(config)
-	if err != nil {
-		return err
-	}
-
-	projects, err := projectV1Client.Projects().List(metav1.ListOptions{})
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Found %d projects in total.\n", len(projects.Items))
-
 	// Filter to matching projects
 	allowedProjects, err := regexp.Compile(projectsRegex)
 	if err != nil {
 		return fmt.Errorf("Argument to --projects (%s) is not a valid regex expression: %s", projectsRegex, err)
 	}
-	targetProjects := []string{}
-	for _, p := range projects.Items {
-		if allowedProjects.MatchString(p.Name) {
-			targetProjects = append(targetProjects, p.Name)
-		}
-	}
-	if len(targetProjects) < 1 {
-		fmt.Printf("Did not find any projects matching '%s'.\n\n", projectsRegex)
-		return nil
-	}
-	fmt.Printf("Found %d projects matching '%s':\n\n", len(targetProjects), projectsRegex)
-	for _, p := range targetProjects {
-		fmt.Printf("\t%s\n", p)
-	}
-	fmt.Println("")
 
 	imageV1Client, err := imagev1.NewForConfig(config)
 	if err != nil {
@@ -143,31 +111,135 @@ func run(host string, token string, projectsRegex string, deployment string, cur
 	}
 
 	// Ensure the passed image tag is resolvable
-	if len(newImage) == 0 {
-		fmt.Println("--new-image is required")
-		os.Exit(1)
-	}
-	newImageReference, err := getImageReference(imageV1Client, newImage)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Found new image tag %s. It references:\n%s\n", newImage, newImageReference)
-
-	// Get current image reference to be able to compare it with
-	// the SHA of the deploymentconfig
-	currentImageReference := ""
-	if len(currentImage) > 0 {
-		currentImageReference, err = getImageReference(imageV1Client, currentImage)
+	var newImageReference string
+	newImage := ""
+	if strings.Contains(newImageFlag, "@sha") {
+		newImageReference = newImageFlag
+		newImage = newImageFlag
+	} else {
+		i, err := getImageReference(imageV1Client, newImageFlag)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Found current image tag '%s', which resolves to: %s.\n", currentImage, currentImageReference)
+		newImageReference = i
+		newImageRegistry := strings.Split(i, "/")[0]
+		newImage = newImageRegistry + "/" + newImageFlag
+		fmt.Printf("\nFound new image tag '%s', which resolves to:\n%s\n\n", newImageFlag, i)
+	}
+
+	// Get current image reference to be able to compare it with
+	// the SHA of the deploymentconfig
+	currentImage := ""
+	if len(currentImageFlag) > 0 {
+		if strings.Contains(currentImageFlag, "@sha") {
+			currentImage = currentImageFlag
+		} else {
+			i, err := getImageReference(imageV1Client, currentImageFlag)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Found current image tag '%s', which resolves to:\n%s\n\n", currentImageFlag, i)
+			currentImageRegistry := strings.Split(i, "/")[0]
+			currentImage = currentImageRegistry + "/" + currentImageFlag
+		}
+	}
+
+	targetDeployments := []targetDeployment{}
+	fmt.Printf("Searching for deployment configs named '%s' in '%s' with image %s ...\n\n", deployment, projectsRegex, currentImage)
+	podList, err := clientSet.Core().Pods("").List(metav1.ListOptions{LabelSelector: "deploymentconfig=" + deployment})
+	if err != nil {
+		panic(err)
+	}
+	namespaceMismatch := 0
+	currentImageMismatch := 0
+	alreadyAtNewImage := 0
+	for _, v := range podList.Items {
+		if allowedProjects.MatchString(v.Namespace) {
+
+			if currentImage == v.Spec.Containers[0].Image {
+				deployedImage := strings.Split(v.Status.ContainerStatuses[0].ImageID, "://")[1]
+				if deployedImage == newImageReference && v.Spec.Containers[0].Image == newImage {
+					alreadyAtNewImage++
+				} else {
+					targetDeployments = append(targetDeployments, targetDeployment{
+						project:       v.Namespace,
+						name:          deployment,
+						deployedImage: deployedImage,
+						newImage:      newImage,
+					})
+				}
+			} else {
+				currentImageMismatch++
+			}
+		} else {
+			namespaceMismatch++
+		}
+	}
+
+	msgDeployments := "deployments"
+	if len(podList.Items) == 1 {
+		msgDeployments = "deployment"
+	}
+	fmt.Printf("Found %d %s of '%s' across all projects.\n", len(podList.Items), msgDeployments, deployment)
+	if namespaceMismatch > 0 {
+		msg := "projects do not match"
+		if namespaceMismatch == 1 {
+			msg = "project does not match"
+		}
+		fmt.Printf("- %d %s '%s'\n", namespaceMismatch, msg, projectsRegex)
+	}
+	if currentImageMismatch > 0 {
+		msg := "deployments are not using image"
+		if currentImageMismatch == 1 {
+			msg = "deployment is not using image"
+		}
+		fmt.Printf("- %d %s '%s'\n", currentImageMismatch, msg, currentImage)
+	}
+	if alreadyAtNewImage > 0 {
+		msg := "deployments are already using new image"
+		if currentImageMismatch == 1 {
+			msg = "deployment is already using new image"
+		}
+		fmt.Printf("- %d %s '%s'\n", alreadyAtNewImage, msg, newImageReference)
+	}
+
+	if len(targetDeployments) == 0 {
+		fmt.Println("\nNo deployments selected for update.")
+		os.Exit(0)
+	}
+
+	msg := "deployments for update"
+	if len(targetDeployments) == 1 {
+		msg = "deployment for update"
+	}
+	fmt.Printf("\nSelected %d %s:\n", len(targetDeployments), msg)
+	for _, v := range targetDeployments {
+		if len(currentImageFlag) > 0 {
+			fmt.Printf("- %s/%s\n", v.project, v.name)
+		} else {
+			fmt.Printf("- %s/%s (using %s)\n", v.project, v.name, v.deployedImage)
+		}
+
 	}
 
 	fmt.Println("")
-	ok := askForConfirmation("Do you want to continue?")
+	ok := askForConfirmation(fmt.Sprintf("Do you want to start rollout (%d in parallel)?", batchSize))
 	if !ok {
 		os.Exit(0)
+	}
+
+	var batched [][]targetDeployment
+
+	chunkSize := (len(targetDeployments) + batchSize - 1) / batchSize
+
+	for i := 0; i < len(targetDeployments); i += chunkSize {
+		end := i + chunkSize
+
+		if end > len(targetDeployments) {
+			end = len(targetDeployments)
+		}
+
+		batched = append(batched, targetDeployments[i:end])
 	}
 
 	appsV1Client, err := appsv1.NewForConfig(config)
@@ -175,60 +247,17 @@ func run(host string, token string, projectsRegex string, deployment string, cur
 		return err
 	}
 
-	fmt.Print("\nSearching for matching deployment configs ...\n\n")
-	targetDeployments := []targetDeployment{}
-
-	for i, p := range targetProjects {
-		deploymentsClient := appsV1Client.DeploymentConfigs(p)
-		fmt.Printf("Checking for %s in project %s", deployment, p)
-		if len(currentImageReference) > 0 {
-			fmt.Printf("(having image %s)", currentImage)
+	for _, v := range batched {
+		fmt.Printf("\nUpdating %d deployments in parallel ...\n", len(batched))
+		var wg sync.WaitGroup
+		for _, d := range v {
+			wg.Add(1)
+			go updateWorker(clientSet, appsV1Client, d, &wg)
 		}
-		fmt.Print(" ... ")
-		dc, err := deploymentsClient.Get(deployment, metav1.GetOptions{})
-		if err != nil {
-			fmt.Println("not found.")
-		} else {
-			isCandidate := false
-			if len(currentImageReference) > 0 {
-				dcImage := dc.Spec.Template.Spec.Containers[0].Image
-				if dcImage == currentImageReference {
-					isCandidate = true
-				} else {
-					fmt.Println("not matching current image.")
-					isCandidate = false
-				}
-			} else {
-				isCandidate = true
-			}
-			// Ensure image is not already set to newImageReference.
-			if isCandidate && dc.Spec.Template.Spec.Containers[0].Image == newImageReference {
-				fmt.Println("already at new image.")
-				isCandidate = false
-			}
-			if isCandidate {
-				fmt.Println("found.")
-				targetDeployments = append(targetDeployments, targetDeployment{
-					project: p,
-					name:    dc.Name,
-				})
-			}
-		}
-
-		if len(targetDeployments) == batchSize || (len(targetDeployments) > 0 && i == len(targetProjects)-1) {
-			fmt.Printf("\nUpdating %d deployments in one batch ...\n", len(targetDeployments))
-			var wg sync.WaitGroup
-			for _, d := range targetDeployments {
-				wg.Add(1)
-				go updateWorker(clientSet, appsV1Client, d, newImage, newImageReference, &wg)
-			}
-			wg.Wait()
-			fmt.Print("\n\n")
-			targetDeployments = []targetDeployment{}
-		}
+		wg.Wait()
 	}
 
-	fmt.Println("Done.")
+	fmt.Println("\n\nDone.")
 
 	return nil
 }
@@ -250,7 +279,7 @@ func getImageReference(imageV1Client *imagev1.ImageV1Client, imageName string) (
 	return is.Image.DockerImageReference, nil
 }
 
-func updateWorker(clientSet *kubernetes.Clientset, appsV1Client *appsv1.AppsV1Client, target targetDeployment, newImage string, newImageReference string, wg *sync.WaitGroup) {
+func updateWorker(clientSet *kubernetes.Clientset, appsV1Client *appsv1.AppsV1Client, target targetDeployment, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	deploymentsClient := appsV1Client.DeploymentConfigs(target.project)
@@ -262,39 +291,37 @@ func updateWorker(clientSet *kubernetes.Clientset, appsV1Client *appsv1.AppsV1Cl
 			return getErr
 		}
 		previousVersion = dc.Status.LatestVersion
-		if dc.Spec.Template.Spec.Containers[0].Image == newImageReference {
-			return fmt.Errorf("%s has been updated to %s", target.name, newImage)
-		}
-		imageTriggerExists := false
-		triggerIndex := 0
-		for i, t := range dc.Spec.Triggers {
+		configTriggerExists := false
+		for _, t := range dc.Spec.Triggers {
 			if t.Type == v1.DeploymentTriggerOnImageChange {
-				imageTriggerExists = true
-				triggerIndex = i
-				break
+				return fmt.Errorf("%s uses an image trigger which is not supported", target.name)
+			} else if t.Type == v1.DeploymentTriggerOnConfigChange {
+				configTriggerExists = true
 			}
 		}
 
-		if imageTriggerExists {
-			imageParts := strings.Split(newImage, "/")
-			imageNamespace := imageParts[0]
-			imageName := imageParts[1]
-			dc.Spec.Triggers[triggerIndex].ImageChangeParams.From.Namespace = imageNamespace
-			dc.Spec.Triggers[triggerIndex].ImageChangeParams.From.Name = imageName
-		} else {
-			dc.Spec.Template.Spec.Containers[0].Image = newImageReference
+		if dc.Spec.Template.Spec.Containers[0].Image != target.newImage {
+			dc.Spec.Template.Spec.Containers[0].Image = target.newImage
+			_, updateErr := deploymentsClient.Update(dc)
+			if updateErr != nil {
+				return updateErr
+			}
+			if configTriggerExists {
+				return nil
+			}
 		}
-		_, updateErr := deploymentsClient.Update(dc)
-		return updateErr
+		_, instantiateErr := deploymentsClient.Instantiate(target.name, &v1.DeploymentRequest{Name: target.name, Force: true})
+		return instantiateErr
+
 	})
 	if retryErr != nil {
-		fmt.Println(retryErr)
+		fmt.Printf("Could not rollout %s/%s: %s\n", target.project, target.name, retryErr)
 		return
 	}
 
-	err := waitForAvailableReplicas(deploymentsClient, target.name, previousVersion)
-	if err != nil {
-		fmt.Println(err)
+	waitErr := waitForAvailableReplicas(deploymentsClient, target.name, previousVersion)
+	if waitErr != nil {
+		fmt.Printf("Failed to observe new available replicas for %s/%s: %s\n", target.project, target.name, waitErr)
 		return
 	}
 
@@ -302,19 +329,21 @@ func updateWorker(clientSet *kubernetes.Clientset, appsV1Client *appsv1.AppsV1Cl
 }
 
 func waitForAvailableReplicas(deploymentsClient appsv1.DeploymentConfigInterface, name string, previousVersion int64) error {
-	end := time.Now().Add(deployRunningThreshold)
+	end := time.Now().Add(deployRunningTimeout)
+
+	fmt.Print(".")
 
 	for {
 		<-time.NewTimer(deployRunningCheckInterval).C
 
 		var err error
 		running, err := availableReplicas(deploymentsClient, name, previousVersion)
-		if running {
-			return nil
-		}
-
 		if err != nil {
 			return fmt.Errorf("Encountered an error checking for running pods: %s", err)
+		}
+
+		if running {
+			return nil
 		}
 
 		if time.Now().After(end) {
@@ -329,6 +358,7 @@ func availableReplicas(deploymentsClient appsv1.DeploymentConfigInterface, name 
 	if err != nil {
 		return false, err
 	}
+	// TODO: Ensure that the version has been increased, otherwise we wait in vain.
 	return dc.Status.LatestVersion > previousVersion && dc.Status.ReadyReplicas > 0, nil
 }
 
