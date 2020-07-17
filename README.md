@@ -28,6 +28,8 @@ The rollout of the new image can be controlled by specifying how many deployment
 
 Once installed, see `obr --help` for usage.
 
+It can make use of an active OC session (retrieved from `~/.kube/config`) or uses login params specified via `--host` and `--token`.
+
 As an example, assume you have a Jenkins instance running in many projects, all of which are ending in `-cd`. The currently deployed image is `cd/jenkins:v1`, which you now want to update to`cd/jenkins:v2`, 10 instances at a time. To do this, simply run:
 
 ```
